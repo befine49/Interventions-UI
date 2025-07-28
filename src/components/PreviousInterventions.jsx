@@ -1,25 +1,27 @@
-import React, { useState } from "react";
-import { Card, Button } from "react-bootstrap";
-
-const interventionsMock = [
-  {
-    id: 1,
-    title: "Installation de logiciel",
-    technicien: "Ahmed Diop",
-    date: "2025-07-20",
-    details: "Installation et configuration d’un logiciel antivirus pour le service comptabilité."
-  },
-  {
-    id: 2,
-    title: "Remplacement de disque dur",
-    technicien: "Fatou Sow",
-    date: "2025-07-18",
-    details: "Changement d’un disque dur endommagé sur un poste utilisateur."
-  }
-];
+import React, { useState, useEffect } from "react";
+import { Card, Button, Alert, Spinner } from "react-bootstrap";
+import axios from "axios";
 
 function PreviousInterventions() {
+  const [interventions, setInterventions] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    setError("");
+    axios.get("http://localhost:8000/api/qa/qa-list")
+      .then((response) => {
+        setInterventions(response.data);
+        setLoading(false);
+      })
+      .catch((error) => {
+        setError("Erreur lors du chargement des interventions.");
+        setInterventions([]);
+        setLoading(false);
+      });
+  }, []);
 
   const toggleDetails = (id) => {
     setExpandedId(expandedId === id ? null : id);
@@ -27,23 +29,40 @@ function PreviousInterventions() {
 
   return (
     <div className="container my-5">
-      <h2 className="mb-4">📋 Interventions Terminées</h2>
-      {interventionsMock.map((intervention) => (
-        <Card className="mb-3 shadow-sm" key={intervention.id}>
+      <h2 className="mb-4">📋 Questions & Réponses</h2>
+      {loading && (
+        <div className="text-center my-4">
+          <Spinner animation="border" variant="primary" />
+        </div>
+      )}
+      {error && (
+        <Alert variant="danger" className="my-3">
+          {error}
+        </Alert>
+      )}
+      {!loading && !error && interventions.length === 0 && (
+        <Alert variant="info" className="my-3">
+          Aucune question trouvée.
+        </Alert>
+      )}
+      {interventions.map((item) => (
+        <Card className="mb-3 shadow-sm" key={item.id}>
           <Card.Body>
-            <Card.Title>{intervention.title}</Card.Title>
+            <Card.Title>Question: {item.question}</Card.Title>
             <Card.Subtitle className="mb-2 text-muted">
-              Technicien : {intervention.technicien} — Date : {intervention.date}
+              Créé le : {new Date(item.created_at).toLocaleString()}
             </Card.Subtitle>
-            {expandedId === intervention.id && (
-              <Card.Text className="mt-2">{intervention.details}</Card.Text>
+            {expandedId === item.id && (
+              <Card.Text className="mt-2">
+                <strong>Réponse:</strong> {item.answer}
+              </Card.Text>
             )}
             <Button
               variant="outline-primary"
               size="sm"
-              onClick={() => toggleDetails(intervention.id)}
+              onClick={() => toggleDetails(item.id)}
             >
-              {expandedId === intervention.id ? "Masquer les détails" : "Voir plus"}
+              {expandedId === item.id ? "Masquer la réponse" : "Voir la réponse"}
             </Button>
           </Card.Body>
         </Card>
