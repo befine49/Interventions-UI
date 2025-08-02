@@ -7,24 +7,29 @@ import PreviousInterventions from './components/PreviousInterventions';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Logout from "./pages/Logout";
+import ChatRoom from "./components/ChatRoom";
+import InterventionList from "./components/InterventionList";
 
 function App() {
   return (
     <>
       <NavBar role="client" />
       <Routes>
-        <Route path="/" element={
-          <>
-            <Hero />
-            <HeroHeader />
-            <PreviousInterventions />
-            <Footer />
-          </>
-        } />
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/logout" element={<Logout />} />
-      </Routes>
+      <Route path="/" element={
+        <>
+          <Hero />
+          <HeroHeader />
+          <PreviousInterventions />
+          <Footer />
+        </>
+      } />
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+      <Route path="/logout" element={<Logout />} />
+
+      <Route path="/intervention/:interventionId/chat" element={<ChatRoom />} />
+      <Route path="/interventions" element={<InterventionList onSelect={(id) => window.location.href = `/intervention/${id}/chat`} />} />
+    </Routes>
     </>
   );
 }

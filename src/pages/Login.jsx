@@ -16,7 +16,9 @@ const Login = () => {
         username,
         password,
       });
-      localStorage.setItem("user", JSON.stringify(response.data));
+      localStorage.setItem("user", JSON.stringify(response.data.user));
+      localStorage.setItem("token", response.data.token);
+      localStorage.setItem("user_id", response.data.user.id);
       navigate("/");
     } catch (err) {
       setError("Invalid credentials");
