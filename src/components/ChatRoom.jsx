@@ -8,6 +8,10 @@ const ChatRoom = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showRating, setShowRating] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [chatClosed, setChatClosed] = useState(false);
+  const [chatRating, setChatRating] = useState(null);
   const ws = useRef(null);
   const messagesEndRef = useRef(null);
 
@@ -90,13 +94,35 @@ const ChatRoom = () => {
     ws.current.onmessage = (event) => {
       console.log("Received WebSocket message:", event.data);
       const data = JSON.parse(event.data);
-      
+
       // Handle error messages from backend
       if (data.type === 'error') {
         alert(data.message);
         return;
       }
-      
+
+      // Handle chat close event from backend
+      if (data.type === 'close_chat_channel') {
+        alert("Chat has been ended by the employee.");
+        ws.current.close();
+        setIsConnected(false);
+        setChatClosed(true);
+
+        // If rating info is sent from backend, set it
+        if (typeof data.rating === 'number') {
+          setChatRating(data.rating);
+        }
+
+        const userData = localStorage.getItem('user');
+        const userType = userData ? JSON.parse(userData).user_type : null;
+        if (userType === 'client') {
+          setShowRating(true);
+        } else {
+          window.location.href = "/interventions";
+        }
+        return;
+      }
+
       setMessages((prev) => [...prev, data]);
     };
 
@@ -119,14 +145,13 @@ const ChatRoom = () => {
   }, [interventionId]);
 
   const sendMessage = () => {
-    if (!inputMessage.trim() || !isConnected) return;
+    if (!inputMessage.trim() || !isConnected || chatClosed) return;
 
-    // Check if user is a client (only clients can send messages)
     const userData = localStorage.getItem('user');
     const userType = userData ? JSON.parse(userData).user_type : null;
-    console.log("User type:", userType);
+
     if (userType !== 'client' && userType !== 'employee') {
-      alert('Only clients can send messages in the chat.');
+      alert('Only clients and employees can send messages in the chat.');
       return;
     }
 
@@ -134,9 +159,53 @@ const ChatRoom = () => {
     setInputMessage("");
   };
 
+  // Employee end chat handler
+  const endChat = () => {
+    const userData = localStorage.getItem('user');
+    const userType = userData ? JSON.parse(userData).user_type : null;
+    if (userType === 'employee' && isConnected) {
+      ws.current.send(JSON.stringify({ action: 'end_chat' }));
+    }
+  };
+
+  const handleRatingSubmit = async () => {
+    // Send rating to backend via websocket
+    if (ws.current && rating > 0) {
+      ws.current.send(JSON.stringify({ action: 'rate_chat', rating }));
+    }
+    setShowRating(false);
+    window.location.href = "/interventions";
+  };
+
   const formatTimestamp = (timestamp) => {
     return new Date(timestamp).toLocaleTimeString();
   };
+
+  useEffect(() => {
+    // Load intervention rating
+    const loadInterventionRating = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        const response = await fetch(`http://localhost:8000/api/interventions/${interventionId}/`, {
+          headers: {
+            'Authorization': `Token ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (typeof data.chat_rating === 'number') {
+            setChatRating(data.chat_rating);
+          }
+        }
+      } catch (err) {
+        // ignore
+      }
+    };
+
+    loadInterventionRating();
+  }, [interventionId]);
 
   if (isLoading) {
     return (
@@ -151,6 +220,73 @@ const ChatRoom = () => {
       <div style={{ maxWidth: "600px", margin: "auto", padding: "20px", textAlign: "center" }}>
         <div style={{ color: "red", marginBottom: "10px" }}>{error}</div>
         <button onClick={() => window.location.reload()}>Retry</button>
+      </div>
+    );
+  }
+
+  if (chatClosed && showRating) {
+    return (
+      <div style={{ maxWidth: "600px", margin: "auto", padding: "40px", textAlign: "center" }}>
+        <h3>Rate this chat</h3>
+        <div style={{ margin: "20px 0" }}>
+          {[1,2,3,4,5].map((star) => (
+            <span
+              key={star}
+              style={{
+                fontSize: "2em",
+                color: rating >= star ? "#FFD700" : "#ccc",
+                cursor: "pointer",
+                margin: "0 5px"
+              }}
+              onClick={() => setRating(star)}
+            >★</span>
+          ))}
+        </div>
+        <button
+          onClick={handleRatingSubmit}
+          disabled={rating === 0}
+          style={{
+            padding: "12px 24px",
+            backgroundColor: rating ? "#007bff" : "#ccc",
+            color: "white",
+            border: "none",
+            borderRadius: "6px",
+            cursor: rating ? "pointer" : "not-allowed",
+            fontSize: "16px"
+          }}
+        >
+          Submit Rating & Return
+        </button>
+      </div>
+    );
+  }
+
+  if (chatClosed && !showRating) {
+    return (
+      <div style={{ maxWidth: "600px", margin: "auto", padding: "40px", textAlign: "center" }}>
+        <h3>Chat Closed</h3>
+        <div style={{ margin: "20px 0", color: "#f44336" }}>
+          This chat has been closed. You can no longer send messages.
+        </div>
+        {chatRating !== null && (
+          <div style={{ margin: "20px 0", color: "#007bff", fontSize: "18px" }}>
+            Client rating for this chat: <b>{chatRating} / 5</b>
+          </div>
+        )}
+        <button
+          onClick={() => window.location.href = "/interventions"}
+          style={{
+            padding: "12px 24px",
+            backgroundColor: "#007bff",
+            color: "white",
+            border: "none",
+            borderRadius: "6px",
+            cursor: "pointer",
+            fontSize: "16px"
+          }}
+        >
+          Return to Interventions
+        </button>
       </div>
     );
   }
@@ -172,16 +308,16 @@ const ChatRoom = () => {
             {(() => {
               const userData = localStorage.getItem('user');
               const userType = userData ? JSON.parse(userData).user_type : null;
-              const isClient = userType === 'client';
+              const isClientOrEmployee = userType === 'client' || userType === 'employee';
               return (
                 <span style={{ 
                   padding: "2px 8px", 
                   borderRadius: "12px", 
-                  backgroundColor: isClient ? "#007bff" : "#ff9800",
+                  backgroundColor: isClientOrEmployee ? "#007bff" : "#ff9800",
                   color: "white",
                   fontSize: "10px"
                 }}>
-                  {isClient ? "Client - Can Send Messages" : "Employee - View Only"}
+                  {isClientOrEmployee ? "Can Send & Receive Messages" : "View Only"}
                 </span>
               );
             })()}
@@ -257,8 +393,8 @@ const ChatRoom = () => {
         {(() => {
           const userData = localStorage.getItem('user');
           const userType = userData ? JSON.parse(userData).user_type : null;
-          const isClient = userType === 'client' || 'employee';
-          const canSend = isConnected && isClient;
+          const isClientOrEmployee = userType === 'client' || userType === 'employee';
+          const canSend = isConnected && isClientOrEmployee;
           
           return (
             <>
@@ -267,15 +403,15 @@ const ChatRoom = () => {
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-                placeholder={isClient ? "Type a message..." : "Only clients can send messages"}
+                placeholder={isClientOrEmployee ? "Type a message..." : "View Only"}
                 style={{ 
                   flex: 1, 
                   padding: "12px", 
                   border: "1px solid #ddd",
                   borderRadius: "6px",
                   fontSize: "14px",
-                  backgroundColor: isClient ? "#fff" : "#f5f5f5",
-                  color: isClient ? "#000" : "#999"
+                  backgroundColor: isClientOrEmployee ? "#fff" : "#f5f5f5",
+                  color: isClientOrEmployee ? "#000" : "#999"
                 }}
                 disabled={!canSend}
               />
@@ -292,8 +428,33 @@ const ChatRoom = () => {
                   fontSize: "14px"
                 }}
               >
-                {isClient ? "Send" : "View Only"}
+                {isClientOrEmployee ? "Send" : "View Only"}
               </button>
+            </>
+          );
+        })()}
+        {(() => {
+          const userData = localStorage.getItem('user');
+          const userType = userData ? JSON.parse(userData).user_type : null;
+          const isEmployee = userType === 'employee';
+          return (
+            <>
+              {isEmployee && (
+                <button
+                  onClick={endChat}
+                  style={{
+                    padding: "12px 20px",
+                    backgroundColor: "#f44336",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontSize: "14px"
+                  }}
+                >
+                  End Chat
+                </button>
+              )}
             </>
           );
         })()}

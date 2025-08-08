@@ -6,6 +6,8 @@ function InterventionList({ onSelect }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [employees, setEmployees] = useState([]);
 
   const loadInterventions = async () => {
     try {
@@ -44,7 +46,70 @@ function InterventionList({ onSelect }) {
 
   useEffect(() => {
     loadInterventions();
+
+    // Detect if user is admin
+    const userData = localStorage.getItem('user');
+    if (userData) {
+      const userType = JSON.parse(userData).user_type;
+      setIsAdmin(userType === 'admin');
+    }
+
+    // Fetch employees for admin assignment
+    const fetchEmployees = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      const res = await fetch("http://localhost:8000/api/employees/", {
+        headers: {
+          'Authorization': `Token ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (res.ok) {
+        setEmployees(await res.json());
+      }
+    };
+    fetchEmployees();
   }, []);
+
+  const handleAssign = async (interventionId, employeeId) => {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`http://localhost:8000/api/interventions/${interventionId}/assign/`, {
+        method: "POST",
+        headers: {
+          'Authorization': `Token ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ employee_id: employeeId }),
+      });
+      if (res.ok) {
+        setInterventions(prev =>
+          prev.map(i => i.id === interventionId ? { ...i, assigned_to: employees.find(e => e.id === Number(employeeId)) } : i)
+        );
+      }
+    } catch (err) {
+      alert("Failed to assign employee");
+    }
+  };
+
+  const handleDelete = async (interventionId) => {
+    if (!window.confirm("Are you sure you want to delete this intervention?")) return;
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`http://localhost:8000/api/interventions/${interventionId}/`, {
+        method: "DELETE",
+        headers: {
+          'Authorization': `Token ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (res.ok) {
+        setInterventions(prev => prev.filter(i => i.id !== interventionId));
+      }
+    } catch (err) {
+      alert("Failed to delete intervention");
+    }
+  };
 
   if (loading) {
     return <div style={{ textAlign: "center", padding: "20px" }}>Loading your support requests...</div>;
@@ -125,6 +190,12 @@ function InterventionList({ onSelect }) {
           </div>
         ) : (
           <div>
+            {isAdmin && (
+              <div style={{ marginBottom: "20px", background: "#f5f5f5", padding: "10px", borderRadius: "8px" }}>
+                <h3>Admin Controls</h3>
+                <span style={{ color: "#666" }}>You can assign employees or delete interventions below.</span>
+              </div>
+            )}
             {interventions.map((intervention) => (
               <div
                 key={intervention.id}
@@ -196,6 +267,42 @@ function InterventionList({ onSelect }) {
                     <span>Click to view details</span>
                   </div>
                 </div>
+                {/* Display chat rating if available */}
+                {typeof intervention.chat_rating === "number" && (
+                  <div style={{ marginTop: "8px", color: "#007bff", fontWeight: "bold", fontSize: "14px" }}>
+                    Client rating: {intervention.chat_rating} / 5
+                  </div>
+                )}
+                {/* Admin controls for assignment and deletion */}
+                {isAdmin && (
+                  <div style={{ marginTop: "10px", display: "flex", gap: "10px", alignItems: "center" }}>
+                    <select
+                      value={intervention.assigned_to?.id || ""}
+                      onChange={e => handleAssign(intervention.id, e.target.value)}
+                      style={{ padding: "6px", borderRadius: "4px" }}
+                    >
+                      <option value="">Unassigned</option>
+                      {employees.map(emp => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.first_name || emp.username}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={e => { e.stopPropagation(); handleDelete(intervention.id); }}
+                      style={{
+                        padding: "6px 12px",
+                        backgroundColor: "#dc3545",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "4px",
+                        cursor: "pointer"
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
