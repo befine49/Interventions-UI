@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from "react";
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import logo from "../assets/logo.png";
 import Styles from './NavBar.module.css';
+import { useNotifications } from "../notifications/NotificationProvider";
 
 const Navbar = () => {
   const [user, setUser] = useState(JSON.parse(localStorage.getItem("user")));
   const location = useLocation();
+  const navigate = useNavigate();
+  const { notifications, unreadCount, markInterventionRead, markAllRead } = useNotifications();
 
   useEffect(() => {
     setUser(JSON.parse(localStorage.getItem("user")));
@@ -47,10 +50,39 @@ const Navbar = () => {
                 </ul>
               </li>
             </ul>
-            <form class="d-flex" role="search">
-              <input class="form-control me-2" type="search" placeholder="Search" aria-label="Search"/>
-              <button class="btn btn-outline-success" type="submit">Search</button>
-            </form>
+            <div class="d-flex align-items-center gap-3">
+              {/* Notifications bell */}
+              <div class="nav-item dropdown">
+                <a class="nav-link position-relative" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" title="Notifications">
+                  <span class="material-symbols-outlined">notifications</span>
+                  {unreadCount > 0 && (
+                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                      {unreadCount}
+                    </span>
+                  )}
+                </a>
+                <ul class="dropdown-menu dropdown-menu-end" style={{ minWidth: '320px' }}>
+                  <li class="dropdown-header d-flex justify-content-between align-items-center">
+                    <span>Notifications</span>
+                    {unreadCount > 0 && (
+                      <button class="btn btn-link btn-sm" onClick={(e) => { e.preventDefault(); markAllRead(); }}>Mark all as read</button>
+                    )}
+                  </li>
+                  {notifications.length === 0 ? (
+                    <li class="dropdown-item text-muted">No new notifications</li>
+                  ) : (
+                    notifications.map(n => (
+                      <li key={`${n.interventionId}-${n.timestamp}`} class="dropdown-item" style={{ whiteSpace: 'normal' }}>
+                        <a href="#" onClick={(e) => { e.preventDefault(); markInterventionRead(n.interventionId); navigate(`/intervention/${n.interventionId}/chat`); }}>
+                          <div class="fw-bold">{n.title} • From {n.fromUser}</div>
+                          <div class="text-muted" style={{ fontSize: '12px' }}>{n.message}</div>
+                        </a>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </div>
+            </div>
             {user ? (
               <Link className="btn btn-outline-danger mx-2" to="/logout">Logout</Link>
             ) : (

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
+import logo from "../assets/logo.png";
 
 const ChatRoom = () => {
   const { interventionId } = useParams();
@@ -14,6 +15,70 @@ const ChatRoom = () => {
   const [chatRating, setChatRating] = useState(null);
   const ws = useRef(null);
   const messagesEndRef = useRef(null);
+  const [isPageVisible, setIsPageVisible] = useState(typeof document !== 'undefined' ? !document.hidden : true);
+  const [hasWindowFocus, setHasWindowFocus] = useState(typeof document !== 'undefined' ? document.hasFocus() : true);
+  const [unseenCount, setUnseenCount] = useState(0);
+  const initialTitleRef = useRef(typeof document !== 'undefined' ? document.title : '');
+  const [toast, setToast] = useState(null);
+  const [notificationBlocked, setNotificationBlocked] = useState(false);
+
+  const markThisInterventionRead = () => {
+    try {
+      const user = JSON.parse(localStorage.getItem('user') || 'null');
+      if (!user) return;
+      const key = `lastSeenMessageTs:${user.id}:${interventionId}`;
+      localStorage.setItem(key, new Date().toISOString());
+    } catch (_) { /* ignore */ }
+  };
+
+  const requestNotificationPermissionIfNeeded = () => {
+    if (typeof window === 'undefined') return;
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+    setNotificationBlocked(Notification.permission === 'denied');
+  };
+
+  const showDesktopNotification = (title, body) => {
+    if (typeof window === 'undefined') return;
+    if (!('Notification' in window)) return;
+    if (Notification.permission !== 'granted') return;
+    try {
+      const notification = new Notification(title, {
+        body,
+        icon: logo,
+        badge: logo,
+      });
+      notification.onclick = () => {
+        window.focus();
+      };
+      if ('vibrate' in navigator) {
+        try { navigator.vibrate([100]); } catch (_) { /* noop */ }
+      }
+    } catch (_) {
+      // ignore notification errors
+    }
+  };
+
+  const playBeep = () => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.21);
+      setTimeout(() => ctx.close(), 300);
+    } catch (_) { /* ignore */ }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -22,6 +87,28 @@ const ChatRoom = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    requestNotificationPermissionIfNeeded();
+    const handleVisibility = () => setIsPageVisible(!document.hidden);
+    document.addEventListener('visibilitychange', handleVisibility);
+    const handleFocus = () => {
+      setHasWindowFocus(true);
+      setUnseenCount(0);
+      if (typeof document !== 'undefined') {
+        document.title = initialTitleRef.current || document.title;
+      }
+      markThisInterventionRead();
+    };
+    const handleBlur = () => setHasWindowFocus(false);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, []);
 
   useEffect(() => {
     if (!interventionId) {
@@ -122,8 +209,30 @@ const ChatRoom = () => {
         }
         return;
       }
-
+      // Push message to UI state
       setMessages((prev) => [...prev, data]);
+
+      // Desktop notification for incoming chat messages from others when tab is hidden
+      try {
+        const currentUserId = parseInt(localStorage.getItem('user_id') || '0');
+        const isIncomingFromOther = data?.type === 'chat' && Number(data?.user_id) !== currentUserId;
+        const pageHidden = typeof document === 'undefined' ? false : document.hidden;
+        const shouldNotify = isIncomingFromOther && (pageHidden || !hasWindowFocus);
+        if (shouldNotify) {
+          showDesktopNotification(`New message from ${data.user}`, data.message);
+          setToast({ text: `New message from ${data.user}: ${data.message}`, ts: Date.now() });
+          playBeep();
+          setUnseenCount((c) => {
+            const next = c + 1;
+            if (typeof document !== 'undefined' && initialTitleRef.current) {
+              document.title = `(${next}) New message • ${initialTitleRef.current}`;
+            }
+            return next;
+          });
+        }
+      } catch (_) {
+        // ignore notification errors
+      }
     };
 
     ws.current.onclose = (event) => {
@@ -157,6 +266,7 @@ const ChatRoom = () => {
 
     ws.current.send(JSON.stringify({ message: inputMessage }));
     setInputMessage("");
+    markThisInterventionRead();
   };
 
   // Employee end chat handler
@@ -211,6 +321,11 @@ const ChatRoom = () => {
     return (
       <div style={{ maxWidth: "600px", margin: "auto", padding: "20px", textAlign: "center" }}>
         <div>Loading chat...</div>
+        {notificationBlocked && (
+          <div style={{ color: '#d9534f', marginTop: '10px', fontSize: '12px' }}>
+            Desktop notifications are blocked. Enable them in your browser site settings to receive alerts when this tab is not focused.
+          </div>
+        )}
       </div>
     );
   }
@@ -293,6 +408,25 @@ const ChatRoom = () => {
 
   return (
     <div style={{ maxWidth: "800px", margin: "auto", padding: "20px" }}>
+      {toast && (
+        <div
+          onAnimationEnd={() => setToast(null)}
+          style={{
+            position: 'fixed',
+            top: '20px',
+            right: '20px',
+            background: '#333',
+            color: '#fff',
+            padding: '10px 14px',
+            borderRadius: '8px',
+            boxShadow: '0 4px 10px rgba(0,0,0,0.2)',
+            zIndex: 9999,
+            maxWidth: '320px'
+          }}
+        >
+          {toast.text}
+        </div>
+      )}
       <div style={{ 
         display: "flex", 
         justifyContent: "space-between", 
